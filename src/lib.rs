@@ -141,6 +141,13 @@ pub mod cnf {
             }
             Some(Clause { lits: lits })
         }
+        pub fn unit(&self) -> Option<Lit> {
+            if self.lits.len() == 1 {
+                Some(self.lits[0].clone())
+            } else {
+                None
+            }
+        }
     }
     impl From<Vec<i32>> for Clause {
         fn from(lits: Vec<i32>) -> Clause {
@@ -214,6 +221,16 @@ pub mod cnf {
                     .collect(),
             }
         }
+        pub fn unit_propagate(&self) -> Self {
+            let mut phi = self.clone();
+            for clause in self.clauses.iter() {
+                if let Some(lit) = clause.unit() {
+                    // TODO: lit.eval(*false*) seems very fishy, but it works..?
+                    phi = phi.partial_eval(lit.var(), lit.eval(false))
+                }
+            }
+            phi
+        }
         pub fn dp(&self) -> Answer {
             match self.is_trivial() {
                 Ok(ans) => ans,
@@ -227,6 +244,19 @@ pub mod cnf {
                     Sat => Sat,
                     Unsat => self.partial_eval(&pivot, true).dll(),
                 },
+            }
+        }
+        pub fn dpll(&self) -> Answer {
+            match self.is_trivial() {
+                Ok(ans) => ans,
+                Err(pivot) => {
+                    let phi = self.unit_propagate();
+                    //println!("phi.unit()={:?}", phi);
+                    match phi.partial_eval(&pivot, false).dpll() {
+                        Sat => Sat,
+                        Unsat => phi.partial_eval(&pivot, true).dpll(),
+                    }
+                }
             }
         }
     }
@@ -332,7 +362,10 @@ pub mod cnf {
             assert_eq!(phi.is_trivial(), Ok(Sat));
 
             let phi = Formula::from(vec![vec![2, -3], vec![-2, 3]]);
-            assert_eq!(phi.is_trivial(), Err(2));
+            assert!(match phi.is_trivial() {
+                Err(_) => true,
+                Ok(_) => false,
+            });
         }
         #[test]
         fn resolve_works() {
@@ -410,6 +443,13 @@ pub mod cnf {
             for (cls, ans) in test_cases().into_iter() {
                 println!("cnf={:?}", cls);
                 assert_eq!(Formula::from(cls).dll(), ans)
+            }
+        }
+        #[test]
+        fn dpll_works() {
+            for (cls, ans) in test_cases().into_iter() {
+                println!("cnf={:?}", cls);
+                assert_eq!(Formula::from(cls).dpll(), ans)
             }
         }
     }
