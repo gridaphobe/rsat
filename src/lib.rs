@@ -88,6 +88,12 @@ pub mod cnf {
                 Neg(v) => Pos(*v),
             }
         }
+        pub fn eval(&self, v: bool) -> bool {
+            match self {
+                Pos(_) => return v,
+                Neg(_) => return !v,
+            }
+        }
     }
     impl From<i32> for Lit {
         fn from(v: i32) -> Lit {
@@ -120,12 +126,27 @@ pub mod cnf {
                     seen.insert(lit.clone());
                 }
             }
-            Some(Clause { lits: seen.into_iter().collect() })
+            Some(Clause {
+                lits: seen.into_iter().collect(),
+            })
+        }
+        pub fn partial_eval(&self, x: &Var, v: bool) -> Option<Self> {
+            let mut lits = vec![];
+            for l in self.lits.iter() {
+                if l.var() != x {
+                    lits.push(l.clone());
+                } else if !l.eval(v) {
+                    return None;
+                }
+            }
+            Some(Clause { lits: lits })
         }
     }
     impl From<Vec<i32>> for Clause {
         fn from(lits: Vec<i32>) -> Clause {
-            Clause { lits: lits.into_iter().map(Lit::from).collect() }
+            Clause {
+                lits: lits.into_iter().map(Lit::from).collect(),
+            }
         }
     }
 
@@ -179,15 +200,33 @@ pub mod cnf {
                 .flat_map(|cl| cl.lits.iter().cloned().filter(|l| l.var() != pivot))
                 .collect();
             // println!("with: {:?}\nwithout: {:?}\nnew: {:?}\n", with, without, new);
-            if let Some(cl) = (Clause{ lits: new}).simplify() {
+            if let Some(cl) = (Clause { lits: new }).simplify() {
                 without.push(cl);
             }
             Formula { clauses: without }
+        }
+        pub fn partial_eval(&self, x: &Var, v: bool) -> Self {
+            Formula {
+                clauses: self
+                    .clauses
+                    .iter()
+                    .filter_map(|cl| cl.partial_eval(x, v))
+                    .collect(),
+            }
         }
         pub fn dp(&self) -> Answer {
             match self.is_trivial() {
                 Ok(ans) => ans,
                 Err(pivot) => self.resolve(&pivot).dp(),
+            }
+        }
+        pub fn dll(&self) -> Answer {
+            match self.is_trivial() {
+                Ok(ans) => ans,
+                Err(pivot) => match self.partial_eval(&pivot, false).dll() {
+                    Sat => Sat,
+                    Unsat => self.partial_eval(&pivot, true).dll(),
+                },
             }
         }
     }
@@ -198,7 +237,7 @@ pub mod cnf {
                     .into_iter()
                     .map(Clause::from)
                     .filter_map(|cl| cl.simplify())
-                    .collect()
+                    .collect(),
             }
         }
     }
@@ -255,17 +294,14 @@ pub mod cnf {
             assert_eq!(phi.is_trivial(), Ok(Unsat));
 
             let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1)] },
-                    Clause { lits: vec![Pos(1)] },
-                ],
+                clauses: vec![Clause { lits: vec![Pos(1)] }, Clause { lits: vec![Pos(1)] }],
             };
             assert_eq!(phi.is_trivial(), Ok(Sat));
 
             let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1), Neg(1)] },
-                ],
+                clauses: vec![Clause {
+                    lits: vec![Pos(1), Neg(1)],
+                }],
             };
             assert_eq!(phi.is_trivial(), Err(1));
 
@@ -282,115 +318,9 @@ pub mod cnf {
             assert_eq!(phi.is_trivial(), Ok(Sat));
 
             let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1)] },
-                    Clause { lits: vec![Neg(1)] },
-                ],
+                clauses: vec![Clause { lits: vec![Pos(1)] }, Clause { lits: vec![Neg(1)] }],
             };
             assert_eq!(phi.is_trivial(), Err(1));
-
-            let phi = Formula::from(
-                vec![
-                    vec![2 , -3],
-                    vec![-2 ,  3],
-                ]
-            );
-            assert_eq!(phi.is_trivial(), Err(3));
-        }
-        #[test]
-        fn resolve_works() {
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1)] },
-                    Clause { lits: vec![Neg(1)] },
-                ],
-            };
-            assert_eq!(phi.resolve(&1), Formula::new(&[Clause::new(&[])]));
-            assert_eq!(phi.resolve(&1).is_trivial(), Ok(Unsat));
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Neg(1), Pos(2)] },
-                    Clause { lits: vec![Pos(1)] },
-                ],
-            };
-            assert_eq!(phi.resolve(&1), Formula::from(vec![vec![2]]));
-            assert_eq!(phi.resolve(&1).is_trivial(), Ok(Sat));
-
-            // let phi = Formula {
-            //     clauses: vec![
-            //         Clause { lits: vec![Pos(1), Neg(1)] },
-            //     ],
-            // };
-            // assert_eq!(phi.resolve(&1), Formula::from(vec![]));
-            // assert_eq!(phi.resolve(&1).is_trivial(), Ok(Sat));
-
-            let phi = Formula::from(
-                vec![
-                    vec![2 , -3],
-                    vec![-2 ,  3],
-                ]
-            );
-            assert_eq!(phi.resolve(&2), Formula::from(vec![]));
-            assert_eq!(phi.resolve(&2).is_trivial(), Ok(Sat));
-        }
-        #[test]
-        fn dp_works() {
-            let phi = Formula {
-                clauses: vec![],
-            };
-            assert_eq!(phi.dp(), Sat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![] },
-                ],
-            };
-            assert_eq!(phi.dp(), Unsat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1)] },
-                ],
-            };
-            assert_eq!(phi.dp(), Sat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Neg(1)] },
-                ],
-            };
-            assert_eq!(phi.dp(), Sat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1), Neg(1)] },
-                ],
-            };
-            assert_eq!(phi.dp(), Unsat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1), Neg(2)] },
-                ],
-            };
-            assert_eq!(phi.dp(), Sat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1)] },
-                    Clause { lits: vec![Neg(1)] },
-                ],
-            };
-            assert_eq!(phi.dp(), Unsat);
-
-            let phi = Formula {
-                clauses: vec![
-                    Clause { lits: vec![Pos(1)] },
-                    Clause { lits: vec![Neg(2)] },
-                ],
-            };
-            assert_eq!(phi.dp(), Sat);
 
             // can't construct this one directly as it's not simplified..
             // let phi = Formula {
@@ -398,53 +328,89 @@ pub mod cnf {
             //         Clause { lits: vec![Pos(1), Neg(1)] },
             //     ],
             // };
-            let phi = Formula::from(vec![ vec![1, -1] ]);
-            assert_eq!(phi.dp(), Sat);
+            let phi = Formula::from(vec![vec![1, -1]]);
+            assert_eq!(phi.is_trivial(), Ok(Sat));
+
+            let phi = Formula::from(vec![vec![2, -3], vec![-2, 3]]);
+            assert_eq!(phi.is_trivial(), Err(2));
+        }
+        #[test]
+        fn resolve_works() {
+            let phi = Formula {
+                clauses: vec![Clause { lits: vec![Pos(1)] }, Clause { lits: vec![Neg(1)] }],
+            };
+            assert_eq!(phi.resolve(&1), Formula::new(&[Clause::new(&[])]));
+            assert_eq!(phi.resolve(&1).is_trivial(), Ok(Unsat));
 
             let phi = Formula {
                 clauses: vec![
-                    Clause { lits: vec![Pos(1), Pos(2)] },
-                    Clause { lits: vec![Neg(1), Pos(3)] },
-                    Clause { lits: vec![Neg(3)] },
+                    Clause {
+                        lits: vec![Neg(1), Pos(2)],
+                    },
+                    Clause { lits: vec![Pos(1)] },
                 ],
             };
-            assert_eq!(phi.dp(), Sat);
+            assert_eq!(phi.resolve(&1), Formula::from(vec![vec![2]]));
+            assert_eq!(phi.resolve(&1).is_trivial(), Ok(Sat));
 
-            let phi = Formula::from(
-                vec![
-                    vec![2 , -3],
-                    vec![-2 ,  3],
-                ]
-            );
-            assert_eq!(phi.dp(), Sat);
+            let phi = Formula::from(vec![vec![2, -3], vec![-2, 3]]);
+            assert_eq!(phi.resolve(&2), Formula::from(vec![]));
+            assert_eq!(phi.resolve(&2).is_trivial(), Ok(Sat));
+        }
 
-            let phi = Formula::from(
-                vec![
-                    vec![-9 ,  1 ,  2],
-                    vec![ 9 ,  2 ,  3],
-                    vec![ 9 ,  2 , -3],
-                    vec![ 9 , -2 ,  3],
-                    vec![ 9 , -2 , -3],
-                    vec![-1 , -2 ,  3],
-                    vec![-9 ,  1 , -2],
-                    vec![-9 , -1 ,  2],
-                ]
-            );
-            assert_eq!(phi.dp(), Sat);
+        fn test_cases() -> Vec<(Vec<Vec<i32>>, Answer)> {
+            vec![
+                (vec![], Sat),
+                (vec![vec![]], Unsat),
+                (vec![vec![1]], Sat),
+                (vec![vec![-1]], Sat),
+                (vec![vec![1, -1]], Sat),
+                (vec![vec![1], vec![-1]], Unsat),
+                (vec![vec![1], vec![-2]], Sat),
+                (vec![vec![1, 2], vec![-1, 3], vec![-3]], Sat),
+                (vec![vec![2, -3], vec![-2, 3]], Sat),
+                (
+                    vec![
+                        vec![-9, 1, 2],
+                        vec![9, 2, 3],
+                        vec![9, 2, -3],
+                        vec![9, -2, 3],
+                        vec![9, -2, -3],
+                        vec![-1, -2, 3],
+                        vec![-9, 1, -2],
+                        vec![-9, -1, 2],
+                    ],
+                    Sat,
+                ),
+                (
+                    vec![
+                        vec![1, 4],
+                        vec![1, -3, -8],
+                        vec![1, 8, 12],
+                        vec![2, 11],
+                        vec![-7, -3, 9],
+                        vec![-7, 8, -9],
+                        vec![7, 8, -10],
+                        vec![7, 10, -12],
+                    ],
+                    Sat,
+                ),
+            ]
+        }
 
-            let phi = Formula::from(
-                vec![
-                    vec![ 1 ,  4],
-                    vec![ 1 , -3,  -8],
-                    vec![ 1 ,  8,  12],
-                    vec![ 2 , 11],
-                    vec![-7 , -3,   9],
-                    vec![-7 ,  8,  -9],
-                    vec![ 7 ,  8, -10],
-                    vec![ 7 , 10, -12],
-                ]
-            );
-            assert_eq!(phi.dp(), Sat);
+        #[test]
+        fn dp_works() {
+            for (cls, ans) in test_cases().into_iter() {
+                println!("cnf={:?}", cls);
+                assert_eq!(Formula::from(cls).dp(), ans)
+            }
+        }
+        #[test]
+        fn dll_works() {
+            for (cls, ans) in test_cases().into_iter() {
+                println!("cnf={:?}", cls);
+                assert_eq!(Formula::from(cls).dll(), ans)
+            }
         }
     }
 }
