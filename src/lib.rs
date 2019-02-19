@@ -62,6 +62,14 @@ pub mod cnf {
         Unsat,
     }
     use Answer::{Sat, Unsat};
+    impl Answer {
+        pub fn or_else<F: FnOnce() -> Self>(self, op: F) -> Self {
+            match self {
+                Sat => Sat,
+                Unsat => op(),
+            }
+        }
+    }
 
     impl Lit {
         pub fn var(&self) -> &Var {
@@ -232,32 +240,23 @@ pub mod cnf {
             phi
         }
         pub fn dp(&self) -> Answer {
-            match self.is_trivial() {
-                Ok(ans) => ans,
-                Err(pivot) => self.resolve(&pivot).dp(),
-            }
+            self.is_trivial()
+                .unwrap_or_else(|pivot| self.resolve(&pivot).dp())
         }
         pub fn dll(&self) -> Answer {
-            match self.is_trivial() {
-                Ok(ans) => ans,
-                Err(pivot) => match self.partial_eval(&pivot, false).dll() {
-                    Sat => Sat,
-                    Unsat => self.partial_eval(&pivot, true).dll(),
-                },
-            }
+            self.is_trivial().unwrap_or_else(|pivot| {
+                self.partial_eval(&pivot, false)
+                    .dll()
+                    .or_else(|| self.partial_eval(&pivot, true).dll())
+            })
         }
         pub fn dpll(&self) -> Answer {
-            match self.is_trivial() {
-                Ok(ans) => ans,
-                Err(pivot) => {
-                    let phi = self.unit_propagate();
-                    //println!("phi.unit()={:?}", phi);
-                    match phi.partial_eval(&pivot, false).dpll() {
-                        Sat => Sat,
-                        Unsat => phi.partial_eval(&pivot, true).dpll(),
-                    }
-                }
-            }
+            self.is_trivial().unwrap_or_else(|pivot| {
+                let phi = self.unit_propagate();
+                phi.partial_eval(&pivot, false)
+                    .dpll()
+                    .or_else(|| phi.partial_eval(&pivot, true).dll())
+            })
         }
     }
     impl From<Vec<Vec<i32>>> for Formula {
