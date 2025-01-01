@@ -26,9 +26,42 @@ pub fn or(t1: Term, t2: Term) -> Term {
 }
 
 impl Term {
+    /// The `cnf` function is a new addition to the `Term` struct. It converts a `Term` into a CNF formula (`cnf::Formula`).
+    /// This function allows for the conversion of logical expressions into Conjunctive Normal Form (CNF), which is a standard form used in SAT solvers.
+    /// The `cnf` function supports various logical operations such as `Lit`, `Var`, `Not`, `And`, and `Or`.
     pub fn cnf(&self) -> cnf::Formula {
-        // TODO
-        unimplemented!()
+        match self {
+            Lit(b) => cnf::Formula::new(&[]),
+            Var(x) => cnf::Formula::new(&[cnf::Clause::new(&[cnf::Lit::Pos(x.parse().unwrap())])]),
+            Not(t) => {
+                let mut formula = t.cnf();
+                for clause in &mut formula.clauses {
+                    for lit in &mut clause.lits {
+                        *lit = lit.negate();
+                    }
+                }
+                formula
+            }
+            And(t1, t2) => {
+                let mut formula1 = t1.cnf();
+                let formula2 = t2.cnf();
+                formula1.clauses.extend(formula2.clauses);
+                formula1
+            }
+            Or(t1, t2) => {
+                let formula1 = t1.cnf();
+                let formula2 = t2.cnf();
+                let mut clauses = vec![];
+                for clause1 in &formula1.clauses {
+                    for clause2 in &formula2.clauses {
+                        let mut lits = clause1.lits.clone();
+                        lits.extend(clause2.lits.clone());
+                        clauses.push(cnf::Clause::new(&lits));
+                    }
+                }
+                cnf::Formula::new(&clauses)
+            }
+        }
     }
 }
 
@@ -450,6 +483,27 @@ pub mod cnf {
                 println!("cnf={:?}", cls);
                 assert_eq!(Formula::from(cls).dpll(), ans)
             }
+        }
+
+        #[test]
+        fn cnf_works() {
+            use crate::{and, lit, not, or, var, Term};
+
+            let term = and(var("1"), var("2"));
+            let expected = Formula::from(vec![vec![1], vec![2]]);
+            assert_eq!(term.cnf(), expected);
+
+            let term = or(var("1"), var("2"));
+            let expected = Formula::from(vec![vec![1, 2]]);
+            assert_eq!(term.cnf(), expected);
+
+            let term = not(var("1"));
+            let expected = Formula::from(vec![vec![-1]]);
+            assert_eq!(term.cnf(), expected);
+
+            let term = and(or(var("1"), var("2")), not(var("3")));
+            let expected = Formula::from(vec![vec![1, 2], vec![-3]]);
+            assert_eq!(term.cnf(), expected);
         }
     }
 }
