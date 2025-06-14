@@ -255,7 +255,7 @@ pub mod cnf {
                 let phi = self.unit_propagate();
                 phi.partial_eval(&pivot, false)
                     .dpll()
-                    .or_else(|| phi.partial_eval(&pivot, true).dll())
+                    .or_else(|| phi.partial_eval(&pivot, true).dpll())
             })
         }
     }
@@ -424,6 +424,15 @@ pub mod cnf {
                         vec![-7, 8, -9],
                         vec![7, 8, -10],
                         vec![7, 10, -12],
+                    ],
+                    Sat,
+                ),
+                (
+                    vec![
+                        vec![1, 2],
+                        vec![-1, -2],
+                        vec![2, 3],
+                        vec![-2, -3],
                     ],
                     Sat,
                 ),
