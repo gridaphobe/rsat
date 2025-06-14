@@ -2,7 +2,7 @@
 name = "rsat"
 version = "0.1.0"
 authors = ["Eric Seidel <eric@seidel.io>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 itertools = "0.14"
