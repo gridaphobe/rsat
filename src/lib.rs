@@ -7,6 +7,8 @@ pub enum Term {
     Or(Box<Term>, Box<Term>),
 }
 
+
+
 use Term::*;
 
 pub fn lit(b: bool) -> Term {
@@ -27,8 +29,87 @@ pub fn or(t1: Term, t2: Term) -> Term {
 
 impl Term {
     pub fn cnf(&self) -> cnf::Formula {
-        // TODO
-        unimplemented!()
+        use std::collections::HashMap;
+
+        fn cnf_rec(
+            term: &Term,
+            neg: bool,
+            map: &mut HashMap<String, i32>,
+            next: &mut i32,
+        ) -> Vec<Vec<i32>> {
+            match term {
+                Lit(b) => {
+                    let val = if neg { !*b } else { *b };
+                    if val {
+                        vec![]
+                    } else {
+                        vec![vec![]]
+                    }
+                }
+                Var(name) => {
+                    let id = *map.entry(name.clone()).or_insert_with(|| {
+                        let v = *next;
+                        *next += 1;
+                        v
+                    });
+                    let lit = if neg { -id } else { id };
+                    vec![vec![lit]]
+                }
+                Not(t) => cnf_rec(t, !neg, map, next),
+                And(a, b) => {
+                    if neg {
+                        // !(a & b) => !a | !b
+                        let lhs = cnf_rec(a, true, map, next);
+                        let rhs = cnf_rec(b, true, map, next);
+                        or_clauses(lhs, rhs)
+                    } else {
+                        let mut lhs = cnf_rec(a, false, map, next);
+                        let rhs = cnf_rec(b, false, map, next);
+                        lhs.extend(rhs);
+                        lhs
+                    }
+                }
+                Or(a, b) => {
+                    if neg {
+                        // !(a | b) => !a & !b
+                        let mut lhs = cnf_rec(a, true, map, next);
+                        let rhs = cnf_rec(b, true, map, next);
+                        lhs.extend(rhs);
+                        lhs
+                    } else {
+                        let lhs = cnf_rec(a, false, map, next);
+                        let rhs = cnf_rec(b, false, map, next);
+                        or_clauses(lhs, rhs)
+                    }
+                }
+            }
+        }
+
+        fn or_clauses(a: Vec<Vec<i32>>, b: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
+            if a.is_empty() || b.is_empty() {
+                return vec![];
+            }
+            if a.len() == 1 && a[0].is_empty() {
+                return b;
+            }
+            if b.len() == 1 && b[0].is_empty() {
+                return a;
+            }
+            let mut res = Vec::new();
+            for ca in &a {
+                for cb in &b {
+                    let mut cl = ca.clone();
+                    cl.extend(cb.iter().cloned());
+                    res.push(cl);
+                }
+            }
+            res
+        }
+
+        let mut map = HashMap::new();
+        let mut next = 1i32;
+        let clauses = cnf_rec(self, false, &mut map, &mut next);
+        cnf::Formula::from(clauses)
     }
 }
 
@@ -275,6 +356,30 @@ pub mod cnf {
     mod tests {
         use crate::cnf::*;
 
+        fn eq_formula(a: &Formula, b: &Formula) -> bool {
+            let norm = |f: &Formula| {
+                let mut c: Vec<Vec<i32>> = f
+                    .clauses
+                    .iter()
+                    .map(|cl| {
+                        let mut lits: Vec<i32> = cl
+                            .lits
+                            .iter()
+                            .map(|l| match l {
+                                Lit::Pos(v) => *v as i32,
+                                Lit::Neg(v) => -(*v as i32),
+                            })
+                            .collect();
+                        lits.sort();
+                        lits
+                    })
+                    .collect();
+                c.sort();
+                c
+            };
+            norm(a) == norm(b)
+        }
+
         #[test]
         fn is_pure_works() {
             let phi = Formula {
@@ -428,6 +533,27 @@ pub mod cnf {
                     Sat,
                 ),
             ]
+        }
+
+        #[test]
+        fn term_cnf_basic() {
+            let t = crate::var("a");
+            assert!(eq_formula(&t.cnf(), &Formula::from(vec![vec![1]])));
+
+            let t = crate::not(crate::var("a"));
+            assert!(eq_formula(&t.cnf(), &Formula::from(vec![vec![-1]])));
+
+            let t = crate::and(crate::var("a"), crate::var("b"));
+            assert!(eq_formula(&t.cnf(), &Formula::from(vec![vec![1], vec![2]])));
+
+            let t = crate::or(crate::var("a"), crate::var("b"));
+            assert!(eq_formula(&t.cnf(), &Formula::from(vec![vec![1, 2]])));
+
+            let t = crate::or(crate::and(crate::var("a"), crate::var("b")), crate::var("c"));
+            assert!(eq_formula(&t.cnf(), &Formula::from(vec![vec![1, 3], vec![2, 3]])));
+
+            let t = crate::or(crate::var("a"), crate::not(crate::var("a")));
+            assert!(t.cnf().empty());
         }
 
         #[test]
