@@ -143,11 +143,11 @@ pub mod cnf {
             for l in self.lits.iter() {
                 if l.var() != x {
                     lits.push(l.clone());
-                } else if !l.eval(v) {
+                } else if l.eval(v) {
                     return None;
                 }
             }
-            Some(Clause { lits: lits })
+            Some(Clause { lits })
         }
         pub fn unit(&self) -> Option<Lit> {
             if self.lits.len() == 1 {
@@ -233,8 +233,7 @@ pub mod cnf {
             let mut phi = self.clone();
             for clause in self.clauses.iter() {
                 if let Some(lit) = clause.unit() {
-                    // TODO: lit.eval(*false*) seems very fishy, but it works..?
-                    phi = phi.partial_eval(lit.var(), lit.eval(false))
+                    phi = phi.partial_eval(lit.var(), lit.eval(true))
                 }
             }
             phi
@@ -388,6 +387,21 @@ pub mod cnf {
             let phi = Formula::from(vec![vec![2, -3], vec![-2, 3]]);
             assert_eq!(phi.resolve(&2), Formula::from(vec![]));
             assert_eq!(phi.resolve(&2).is_trivial(), Ok(Sat));
+        }
+
+        #[test]
+        fn partial_eval_removes_clause_when_satisfied() {
+            let cl = Clause::new(&[Pos(1), Neg(2)]);
+            assert_eq!(cl.partial_eval(&1, true), None);
+        }
+
+        #[test]
+        fn partial_eval_removes_literal_when_unsatisfied() {
+            let cl = Clause::new(&[Pos(1), Neg(2)]);
+            assert_eq!(
+                cl.partial_eval(&1, false),
+                Some(Clause::new(&[Neg(2)]))
+            );
         }
 
         fn test_cases() -> Vec<(Vec<Vec<i32>>, Answer)> {
